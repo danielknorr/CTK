@@ -215,6 +215,11 @@ public:
    */
   Q_SIGNAL void sessionRenewed(const QDateTime& expirationDate);
 
+  /**
+   * @brief Signals that the session is about to be deleted.
+   */
+  Q_SIGNAL void aboutToBeDeleted();
+
 public slots:
   void processResult(QUuid queryId, QList<QVariantMap> parameters);
   void progress(QUuid queryId, double progress);
