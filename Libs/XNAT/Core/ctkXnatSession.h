@@ -218,7 +218,7 @@ public:
   /**
    * @brief Signals that the session is about to be deleted.
    */
-  Q_SIGNAL void aboutToBeDeleted();
+  Q_SIGNAL void aboutToBeClosed();
 
 public slots:
   void processResult(QUuid queryId, QList<QVariantMap> parameters);

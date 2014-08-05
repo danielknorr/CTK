@@ -375,7 +375,7 @@ void ctkXnatSession::close()
 
   if (!this->isOpen()) return;
 
-  emit aboutToBeDeleted();
+  emit aboutToBeClosed();
   d->close();
 }
 
