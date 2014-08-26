@@ -366,6 +366,7 @@ void ctkXnatSession::open()
 
   d->dataModel.reset(new ctkXnatDataModel(this));
   d->dataModel->setProperty("label", this->url().toString());
+  emit sessionOpened();
 }
 
 //----------------------------------------------------------------------------
@@ -375,7 +376,7 @@ void ctkXnatSession::close()
 
   if (!this->isOpen()) return;
 
-  emit aboutToBeClosed();
+  emit sessionAboutToBeClosed();
   d->close();
 }
 
