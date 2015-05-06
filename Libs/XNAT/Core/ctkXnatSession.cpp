@@ -3,13 +3,13 @@
   Library: XNAT/Core
 
   Copyright (c) University College London,
-    Centre for Medical Image Computing
+  Centre for Medical Image Computing
 
   Licensed under the Apache License, Version 2.0 (the "License");
   you may not use this file except in compliance with the License.
   You may obtain a copy of the License at
 
-    http://www.apache.org/licenses/LICENSE-2.0
+  http://www.apache.org/licenses/LICENSE-2.0
 
   Unless required by applicable law or agreed to in writing, software
   distributed under the License is distributed on an "AS IS" BASIS,
@@ -17,7 +17,7 @@
   See the License for the specific language governing permissions and
   limitations under the License.
 
-=============================================================================*/
+  =============================================================================*/
 
 #include "ctkXnatSession.h"
 
@@ -36,6 +36,7 @@
 #include "ctkXnatSubject.h"
 
 #include <QDateTime>
+#include <QTimer>
 #include <QDebug>
 #include <QScopedPointer>
 #include <QStringBuilder>
@@ -66,6 +67,14 @@ public:
 
   ctkXnatSession* q;
 
+  QTimer* timer;
+
+  // The time in milliseconds untill the signal sessionTimesOutSoon gets emitted
+  int timeToSessionTimesOutSoon = 840000;
+
+  // The time in milliseconds untill the signal sessionTimedOut gets emitted
+  int timeToSessionTimedOut = 60000;
+
   ctkXnatSessionPrivate(const ctkXnatLoginProfile& loginProfile, ctkXnatSession* q);
   ~ctkXnatSessionPrivate();
 
@@ -84,10 +93,11 @@ public:
 
 //----------------------------------------------------------------------------
 ctkXnatSessionPrivate::ctkXnatSessionPrivate(const ctkXnatLoginProfile& loginProfile,
-                                             ctkXnatSession* q)
+  ctkXnatSession* q)
   : loginProfile(loginProfile)
   , xnat(new ctkXnatAPI())
   , q(q)
+  , timer(new QTimer(q))
 {
   // TODO This is a workaround for connecting to sites with self-signed
   // certificate. Should be replaced with something more clever.
@@ -132,10 +142,10 @@ void ctkXnatSessionPrivate::throwXnatException(const QString& msg)
 //----------------------------------------------------------------------------
 void ctkXnatSessionPrivate::createConnections()
 {
-//  Q_D(ctkXnatSession);
-//  connect(d->xnat, SIGNAL(resultReceived(QUuid,QList<QVariantMap>)),
-//           this, SLOT(processResult(QUuid,QList<QVariantMap>)));
-//  connect(d->xnat, SIGNAL(progress(QUuid,double)),
+  //  Q_D(ctkXnatSession);
+  //  connect(d->xnat, SIGNAL(resultReceived(QUuid,QList<QVariantMap>)),
+  //           this, SLOT(processResult(QUuid,QList<QVariantMap>)));
+  //  connect(d->xnat, SIGNAL(progress(QUuid,double)),
   //           this, SLOT(progress(QUuid,double)));
 }
 
@@ -146,8 +156,8 @@ void ctkXnatSessionPrivate::setDefaultHttpHeaders()
   rawHeaders[HEADER_USER_AGENT] = "Qt";
   /*
   rawHeaders["Authorization"] = "Basic " +
-      QByteArray(QString("%1:%2").arg(d->loginProfile.userName())
-                 .arg(d->loginProfile.password()).toAscii()).toBase64();
+  QByteArray(QString("%1:%2").arg(d->loginProfile.userName())
+  .arg(d->loginProfile.password()).toAscii()).toBase64();
   */
   if (!sessionId.isEmpty())
   {
@@ -210,6 +220,7 @@ QDateTime ctkXnatSessionPrivate::updateExpirationDate(qRestResult* restResult)
           timeSpan.chop(1);
           expirationDate = expirationDate.addMSecs(timeSpan.toLong());
           sessionProperties[SESSION_EXPIRATION_DATE] = expirationDate.toString(Qt::ISODate);
+          this->timer->start(this->timeToSessionTimesOutSoon);
           emit q->sessionRenewed(expirationDate);
         }
       }
@@ -232,7 +243,7 @@ void ctkXnatSessionPrivate::close()
 QList<ctkXnatObject*> ctkXnatSessionPrivate::results(qRestResult* restResult, QString schemaType)
 {
   QList<ctkXnatObject*> results;
-  foreach (const QVariantMap& propertyMap, restResult->results())
+  foreach(const QVariantMap& propertyMap, restResult->results())
   {
     QString customSchemaType;
     if (propertyMap.contains("xsiType"))
@@ -278,7 +289,7 @@ QList<ctkXnatObject*> ctkXnatSessionPrivate::results(qRestResult* restResult, QS
     // Fill in the properties
     QMapIterator<QString, QVariant> it(propertyMap);
     QString description;
-    
+
     while (it.hasNext())
     {
       it.next();
@@ -287,7 +298,7 @@ QList<ctkXnatObject*> ctkXnatSessionPrivate::results(qRestResult* restResult, QS
       QVariant var = it.value();
 
       object->setProperty(str, var);
-      description.append (str + QString ("\t::\t") + var.toString() + "\n");
+      description.append(str + QString("\t::\t") + var.toString() + "\n");
     }
 
     QVariant lastModifiedHeader = restResult->rawHeader("Last-Modified");
@@ -307,13 +318,12 @@ QList<ctkXnatObject*> ctkXnatSessionPrivate::results(qRestResult* restResult, QS
   return results;
 }
 
-
 //----------------------------------------------------------------------------
 // ctkXnatSession class
 
 //----------------------------------------------------------------------------
 ctkXnatSession::ctkXnatSession(const ctkXnatLoginProfile& loginProfile)
-: d_ptr(new ctkXnatSessionPrivate(loginProfile, this))
+  : d_ptr(new ctkXnatSessionPrivate(loginProfile, this))
 {
   Q_D(ctkXnatSession);
 
@@ -325,7 +335,7 @@ ctkXnatSession::ctkXnatSession(const ctkXnatLoginProfile& loginProfile)
   qRegisterMetaType<ctkXnatResource>(qPrintable(ctkXnatDefaultSchemaTypes::XSI_RESOURCE));
   qRegisterMetaType<ctkXnatAssessor>(qPrintable(ctkXnatDefaultSchemaTypes::XSI_ASSESSOR));
   qRegisterMetaType<ctkXnatFile>(qPrintable(ctkXnatDefaultSchemaTypes::XSI_FILE));
-  
+
   QString url = d->loginProfile.serverUrl().toString();
   d->xnat->setServerUrl(url);
 
@@ -347,12 +357,14 @@ void ctkXnatSession::open()
 
   qRestAPI::RawHeaders headers;
   headers[HEADER_AUTHORIZATION] = "Basic " +
-                                  QByteArray(QString("%1:%2").arg(this->userName())
-                                             .arg(this->password()).toLatin1()).toBase64();
+    QByteArray(QString("%1:%2").arg(this->userName())
+    .arg(this->password()).toLatin1()).toBase64();
   QUuid uuid = d->xnat->get("/data/JSESSION", qRestAPI::Parameters(), headers);
   QScopedPointer<qRestResult> restResult(d->xnat->takeResult(uuid));
   if (restResult)
   {
+    QObject::connect(d->timer, SIGNAL(timeout()), this, SLOT(emitSessionTimeOut()));
+
     QString sessionId = restResult->result()["content"].toString();
     d->sessionId = sessionId;
     d->setDefaultHttpHeaders();
@@ -434,9 +446,9 @@ ctkXnatLoginProfile ctkXnatSession::loginProfile() const
 //----------------------------------------------------------------------------
 void ctkXnatSession::progress(QUuid /*queryId*/, double /*progress*/)
 {
-//  qDebug() << "ctkXnatSession::progress(QUuid queryId, double progress)";
-//  qDebug() << "query id:" << queryId;
-//  qDebug() << "progress:" << (progress * 100.0) << "%";
+  //  qDebug() << "ctkXnatSession::progress(QUuid queryId, double progress)";
+  //  qDebug() << "query id:" << queryId;
+  //  qDebug() << "progress:" << (progress * 100.0) << "%";
 }
 
 //----------------------------------------------------------------------------
@@ -480,6 +492,7 @@ QUuid ctkXnatSession::httpGet(const QString& resource, const ctkXnatSession::Url
 {
   Q_D(ctkXnatSession);
   d->checkSession();
+  d->timer->start(d->timeToSessionTimesOutSoon);
   return d->xnat->get(resource, parameters, rawHeaders);
 }
 
@@ -494,6 +507,7 @@ QList<ctkXnatObject*> ctkXnatSession::httpResults(const QUuid& uuid, const QStri
   {
     d->throwXnatException("Http request failed.");
   }
+  d->timer->start(d->timeToSessionTimesOutSoon);
   return d->results(restResult.data(), schemaType);
 }
 
@@ -524,7 +538,7 @@ bool ctkXnatSession::exists(const ctkXnatObject* object)
 
   QString query = object->resourceUri();
   bool success = d->xnat->sync(d->xnat->get(query));
-
+  d->timer->start(d->timeToSessionTimesOutSoon);
   return success;
 }
 
@@ -532,7 +546,8 @@ bool ctkXnatSession::exists(const ctkXnatObject* object)
 const QMap<QByteArray, QByteArray> ctkXnatSession::httpHeadSync(const QUuid &uuid)
 {
   Q_D(ctkXnatSession);
-  QScopedPointer<qRestResult> result (d->xnat->takeResult(uuid));
+  QScopedPointer<qRestResult> result(d->xnat->takeResult(uuid));
+  d->timer->start(d->timeToSessionTimesOutSoon);
   if (result == NULL)
   {
     d->throwXnatException("Sending HEAD request failed.");
@@ -545,6 +560,7 @@ QUuid ctkXnatSession::httpHead(const QString& resourceUri)
 {
   Q_D(ctkXnatSession);
   QUuid queryId = d->xnat->head(resourceUri);
+  d->timer->start(d->timeToSessionTimesOutSoon);
   return queryId;
 }
 
@@ -566,6 +582,7 @@ void ctkXnatSession::save(ctkXnatObject* object)
   qDebug() << "ctkXnatSession::save() query:" << query;
   QUuid queryId = d->xnat->put(query);
   qRestResult* result = d->xnat->takeResult(queryId);
+  d->timer->start(d->timeToSessionTimesOutSoon);
 
   if (!result || !result->error().isNull())
   {
@@ -590,6 +607,7 @@ void ctkXnatSession::remove(ctkXnatObject* object)
 
   QString query = object->resourceUri();
   bool success = d->xnat->sync(d->xnat->del(query));
+  d->timer->start(d->timeToSessionTimesOutSoon);
 
   if (!success)
   {
@@ -599,19 +617,37 @@ void ctkXnatSession::remove(ctkXnatObject* object)
 
 //----------------------------------------------------------------------------
 void ctkXnatSession::download(const QString& fileName,
-    const QString& resource,
-    const UrlParameters& parameters,
-    const HttpRawHeaders& rawHeaders)
+  const QString& resource,
+  const UrlParameters& parameters,
+  const HttpRawHeaders& rawHeaders)
 {
   Q_D(ctkXnatSession);
 
   QUuid queryId = d->xnat->download(fileName, resource, parameters, rawHeaders);
   d->xnat->sync(queryId);
+  d->timer->start(d->timeToSessionTimesOutSoon);
 }
 
 //----------------------------------------------------------------------------
 void ctkXnatSession::processResult(QUuid queryId, QList<QVariantMap> parameters)
 {
   Q_UNUSED(queryId)
-  Q_UNUSED(parameters)
+    Q_UNUSED(parameters)
+}
+
+//----------------------------------------------------------------------------
+void ctkXnatSession::emitSessionTimeOut()
+{
+  Q_D(ctkXnatSession);
+
+  if (d->timer->interval() == d->timeToSessionTimesOutSoon)
+  {
+    d->timer->start(d->timeToSessionTimedOut);
+    emit sessionTimesOutSoon();
+  }
+  else if (d->timer->interval() == d->timeToSessionTimedOut)
+  {
+    d->timer->stop();
+    emit sessionTimedOut();
+  }
 }
